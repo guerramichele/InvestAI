@@ -1,0 +1,128 @@
+
+import express from "express";
+import fetch from "node-fetch";
+import cors from "cors";
+
+/* ================================
+   CONFIG
+================================ */
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+const MODEL = "claude-sonnet-4-20250514";
+
+/* ================================
+   PROMPT MASTER (CERVELLO)
+================================ */
+const SYSTEM_PROMPT = `
+Sei il MIGLIOR AI BOT DI INVESTIMENTI AL MONDO (solo educativo).
+
+COMPITI:
+- Capisci automaticamente cosa vuole l’utente
+- Scegli la modalità corretta
+- Usa dati aggiornati se servono
+- Risposte strutturate, chiare, professionali
+- Sempre PRO e CONTRO
+- Numeri, percentuali, prezzi
+- MAI dare consigli finanziari diretti
+
+MODALITÀ DISPONIBILI:
+1. Analisi Azione
+2. Analisi Tecnica
+3. Analisi Fondamentale
+4. ETF
+5. Portafoglio
+6. Strategie
+7. News & Catalyst
+8. Confronto Titoli
+9. Educazione Finanziaria
+10. Risk Management
+11. Modalità PRO
+
+FORMATO OBBLIGATORIO:
+- 📌 Modalità rilevata
+- 📊 Dati principali
+- ✅ Pro
+- ⚠️ Contro
+- 🧠 Conclusione neutrale
+- ⚠️ Disclaimer finale
+`;
+
+/* ================================
+   INTENT DETECTION
+================================ */
+function detectMode(text) {
+  const t = text.toLowerCase();
+
+  if (t.includes("rsi") || t.includes("macd") || t.includes("media")) return "Analisi Tecnica";
+  if (t.includes("bilancio") || t.includes("p/e") || t.includes("eps")) return "Analisi Fondamentale";
+  if (t.includes("etf")) return "ETF";
+  if (t.includes("portafoglio")) return "Portafoglio";
+  if (t.includes("strategia") || t.includes("dca")) return "Strategie";
+  if (t.includes("confronta") || t.includes("vs")) return "Confronto Titoli";
+  if (t.includes("rischio") || t.includes("volatilità")) return "Risk Management";
+  if (t.includes("cos'è") || t.includes("spiegami")) return "Educazione Finanziaria";
+  if (t.includes("analizza")) return "Analisi Azione";
+
+  return "Modalità PRO";
+}
+
+/* ================================
+   API CHAT (IL BOT)
+================================ */
+app.post("/api/chat", async (req, res) => {
+  try {
+    const userMessage = req.body.message;
+    const mode = detectMode(userMessage);
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 2000,
+        tools: [
+          { type: "web_search_20250305", name: "web_search" }
+        ],
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: `
+MODALITÀ: ${mode}
+DOMANDA UTENTE: ${userMessage}
+`
+          }
+        ]
+      })
+    });
+
+    const data = await response.json();
+
+    let text = "";
+    for (const block of data.content || []) {
+      if (block.type === "text") text += block.text;
+    }
+
+    res.json({
+      mode,
+      answer: text || "Errore nella risposta AI"
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Errore del bot AI" });
+  }
+});
+
+/* ================================
+   START SERVER
+================================ */
+app.listen(3000, () => {
+  console.log("🚀 Investment AI Bot ONLINE (port 3000)");
+});
